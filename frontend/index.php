@@ -588,7 +588,7 @@
     // Replace the mockBotResponse function with this:
     async function getBotResponse(userQuery) {
     try {
-        const response = await fetch('http://localhost:8000/api/chat', {
+        const response = await fetch('http://melodic-jessa-naexya-deploy-3a0e4ff5.koyeb.app/chat', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
