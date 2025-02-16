@@ -1,5 +1,2 @@
 fastapi
 uvicorn
-sqlite3
-os
-pydantic
