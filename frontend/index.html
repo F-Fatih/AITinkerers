@@ -513,7 +513,7 @@
           <h3>Abstract</h3>
           <p id="modal-abstract"></p>
           <h3>AI Summary</h3>
-          <p id="modal-ai-summary"></p>
+          <pre id="modal-ai-summary"></pre>
         </div>
         <div class="paper-actions">
           <a id="modal-arxiv-link" href="#" target="_blank" class="modal-button">View on arXiv</a>
@@ -583,170 +583,192 @@
     svg.on(".zoom", null);
 
     function createGraph(papersData) {
-      // Remove welcome message completely when graph is created
-      if (papersData !== null) {
-        svg.select(".welcome-message").remove();
-        // Enable zoom only when we have data
-        svg.call(zoom);
-        // Center the view
-        svg.call(zoom.transform, d3.zoomIdentity);
-      } else {
-        // Disable zoom when there's no data
-        svg.on(".zoom", null);
-      }
-      
-      // Clear existing graph
-      linkGroup.selectAll("*").remove();
-      nodeGroup.selectAll("*").remove();
+  // Remove welcome message completely when graph is created
+  if (papersData !== null) {
+    svg.select(".welcome-message").remove();
+    svg.call(zoom);
+    svg.call(zoom.transform, d3.zoomIdentity);
+  } else {
+    svg.on(".zoom", null);
+  }
+  
+  // Clear existing graph
+  linkGroup.selectAll("*").remove();
+  nodeGroup.selectAll("*").remove();
 
-      if (papersData !== null) {
-        // Définition des liens originaux
-        const linksData = [
-          { source: "1", target: "2" },
-          { source: "1", target: "3" },
-          { source: "1", target: "4" },
-          { source: "1", target: "5" },
-          { source: "1", target: "6" },
-          { source: "2", target: "3" },
-          { source: "4", target: "6" },
-          { source: "3", target: "6" }
-        ];
+  if (papersData !== null) {
+    // Transform data to add id and extract arxivId
+    papersData = papersData.map((paper, index) => ({
+      ...paper,
+      id: (index + 1).toString(),
+      arxivId: paper.url.split('/').pop().replace('v1', ''),
+      category: paper.primary_category // Use primary category for main grouping
+    }));
 
-        // Parse date for color scale
-        const parseDate = d3.timeParse("%Y-%m-%d");
-        papersData.forEach(d => {
-          d.dateObj = parseDate(d.date);
-          // Convert id to string to match linksData
-          d.id = d.id.toString();
-        });
-
-        // Subject-based color scale
-        const categories = [...new Set(papersData.map(d => d.category))];
-        const subjectColorScale = d3.scaleOrdinal()
-          .domain(categories)
-          .range(["#007BFF", "#28a745", "#fd7e14", "#6f42c1", "#20c997", "#ffc107"]);
-
-        // Date-based color scale
-        const minDate = d3.min(papersData, d => d.dateObj);
-        const maxDate = d3.max(papersData, d => d.dateObj);
-        const dateColorScale = d3.scaleTime()
-          .domain([minDate, maxDate])
-          .range(["#cfe2ff", "#002855"]);
-
-        let currentColorMode = "subject";
-
-        function getNodeColor(d) {
-          return currentColorMode === "subject"
-            ? subjectColorScale(d.category)
-            : dateColorScale(d.dateObj);
-        }
-
-        // Force simulation with collision
-        const simulation = d3.forceSimulation(papersData)
-          .force("link", d3.forceLink(linksData).id(d => d.id).distance(180))
-          .force("charge", d3.forceManyBody().strength(-300))
-          .force("center", d3.forceCenter(width / 2, height / 2))
-          .force("collision", d3.forceCollide().radius(75).strength(1))
-          .alphaDecay(0.02);
-
-        // Links
-        const link = linkGroup
-          .selectAll("line")
-          .data(linksData)
-          .enter()
-          .append("line")
-          .attr("stroke", "#999")
-          .attr("stroke-opacity", 0.6)
-          .attr("stroke-width", 2);
-
-        // Nodes as (g) containing a rect + text
-        const node = nodeGroup
-          .selectAll("g")
-          .data(papersData)
-          .enter()
-          .append("g")
-          .on("mouseover", handleMouseOver)
-          .on("mousemove", handleMouseMove)
-          .on("mouseout", handleMouseOut)
-          .on("click", handleNodeClick)
-          .call(d3.drag()
-            .on("start", dragstarted)
-            .on("drag", dragged)
-            .on("end", dragended));
-
-        // Rounded rectangle
-        node.append("rect")
-          .attr("rx", 10)
-          .attr("ry", 10)
-          .attr("width", 140)
-          .attr("height", 40)
-          .attr("x", -70) 
-          .attr("y", -20)
-          .attr("fill", d => getNodeColor(d));
-
-        // Title text
-        node.append("text")
-          .attr("text-anchor", "middle")
-          .attr("dominant-baseline", "middle")
-          .attr("fill", "#fff")
-          .style("font-size", "12px")
-          .text(d => {
-            const maxLen = 20;
-            return d.title.length > maxLen
-              ? d.title.slice(0, maxLen) + "…"
-              : d.title;
+    // Create links based on shared categories
+    const linksData = [];
+    for (let i = 0; i < papersData.length; i++) {
+      for (let j = i + 1; j < papersData.length; j++) {
+        // Check for shared categories
+        const sharedCategories = papersData[i].categories.filter(
+          cat => papersData[j].categories.includes(cat)
+        );
+        if (sharedCategories.length > 0) {
+          linksData.push({
+            source: papersData[i].id,
+            target: papersData[j].id
           });
-
-        // Drag functions
-        function dragstarted(event) {
-          if (!event.active) simulation.alphaTarget(0.3).restart();
-          event.subject.fx = event.subject.x;
-          event.subject.fy = event.subject.y;
         }
-
-        function dragged(event) {
-          event.subject.fx = event.x;
-          event.subject.fy = event.y;
-        }
-
-        function dragended(event) {
-          if (!event.active) simulation.alphaTarget(0);
-          event.subject.fx = null;
-          event.subject.fy = null;
-        }
-
-        // Pin node #1 to center
-        simulation.on("tick", () => {
-          link
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
-
-          node.attr("transform", d => `translate(${d.x},${d.y})`);
-
-          const centerNode = papersData.find(d => d.id === "1");
-          if (centerNode) {
-            centerNode.fx = width / 2;
-            centerNode.fy = height / 2;
-          }
-        });
-
-        // Update color mode handler
-        function updateNodeColors() {
-          nodeGroup.selectAll("rect").attr("fill", d => getNodeColor(d));
-        }
-
-        // Update color mode event listener
-        const colorModePanel = document.getElementById("color-mode-panel");
-        colorModePanel.addEventListener("change", (e) => {
-          if (e.target.name === "colorMode") {
-            currentColorMode = e.target.value;
-            updateNodeColors();
-          }
-        });
       }
     }
+
+    // Parse date for color scale
+    const parseDate = d3.timeParse("%Y-%m-%d");
+    papersData.forEach(d => {
+      d.dateObj = parseDate(d.published);
+    });
+
+    // Color scales
+    const categories = [...new Set(papersData.map(d => d.category))];
+    const subjectColorScale = d3.scaleOrdinal()
+      .domain(categories)
+      .range(["#007BFF", "#28a745", "#fd7e14", "#6f42c1", "#20c997", "#ffc107"]);
+
+    const minDate = d3.min(papersData, d => d.dateObj);
+    const maxDate = d3.max(papersData, d => d.dateObj);
+    const dateColorScale = d3.scaleTime()
+      .domain([minDate, maxDate])
+      .range(["#cfe2ff", "#002855"]);
+
+    let currentColorMode = "subject";
+
+    function getNodeColor(d) {
+      return currentColorMode === "subject"
+        ? subjectColorScale(d.category)
+        : dateColorScale(d.dateObj);
+    }
+
+    // Force simulation
+    const simulation = d3.forceSimulation(papersData)
+      .force("link", d3.forceLink(linksData).id(d => d.id).distance(180))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collision", d3.forceCollide().radius(75).strength(1))
+      .alphaDecay(0.02);
+
+    // Create links
+    const link = linkGroup
+      .selectAll("line")
+      .data(linksData)
+      .enter()
+      .append("line")
+      .attr("stroke", "#999")
+      .attr("stroke-opacity", 0.6)
+      .attr("stroke-width", 2);
+
+    // Create nodes
+    const node = nodeGroup
+      .selectAll("g")
+      .data(papersData)
+      .enter()
+      .append("g")
+      .on("mouseover", handleMouseOver)
+      .on("mousemove", handleMouseMove)
+      .on("mouseout", handleMouseOut)
+      .on("click", handleNodeClick)
+      .call(d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended));
+
+    // Node appearance
+    node.append("rect")
+      .attr("rx", 10)
+      .attr("ry", 10)
+      .attr("width", 140)
+      .attr("height", 40)
+      .attr("x", -70)
+      .attr("y", -20)
+      .attr("fill", d => getNodeColor(d));
+
+    node.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .attr("fill", "#fff")
+      .style("font-size", "12px")
+      .text(d => {
+        const maxLen = 20;
+        return d.title.length > maxLen
+          ? d.title.slice(0, maxLen) + "…"
+          : d.title;
+      });
+
+    // Update tooltip content
+    function handleMouseOver(event, d) {
+      tooltip.style("display", "block")
+        .html(`
+          <strong>${d.title}</strong><br/>
+          Authors: ${d.authors.join(", ")}<br/>
+          Primary: ${d.primary_category}<br/>
+          Categories: ${d.categories.join(", ")}
+        `);
+    }
+
+    // Update node click handler for details panel
+    function handleNodeClick(event, d) {
+      document.getElementById("paper-title").textContent = d.title;
+      document.getElementById("paper-authors").textContent = d.authors.join(", ");
+      document.getElementById("paper-category").textContent = d.primary_category;
+      document.getElementById("paper-date").textContent = d.published;
+      document.getElementById("paper-abstract").textContent = d.abstract;
+      document.getElementById("paper-arxiv-link").href = d.url;
+
+      document.getElementById("details-panel").classList.remove("hidden");
+    }
+
+    // Rest of the simulation code...
+    simulation.on("tick", () => {
+      link
+        .attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x)
+        .attr("y2", d => d.target.y);
+
+      node.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+
+    // Update color mode functionality
+    function updateNodeColors() {
+      nodeGroup.selectAll("rect").attr("fill", d => getNodeColor(d));
+    }
+
+    const colorModePanel = document.getElementById("color-mode-panel");
+    colorModePanel.addEventListener("change", (e) => {
+      if (e.target.name === "colorMode") {
+        currentColorMode = e.target.value;
+        updateNodeColors();
+      }
+    });
+
+    // Drag functions
+    function dragstarted(event) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
+    }
+
+    function dragged(event) {
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
+    }
+
+    function dragended(event) {
+      if (!event.active) simulation.alphaTarget(0);
+      event.subject.fx = null;
+      event.subject.fy = null;
+    }
+  }
+}
 
     // Initial call to show welcome message
     createGraph(null);
@@ -755,12 +777,14 @@
      ********************************************************/
     const tooltip = d3.select("#graph-tooltip");
 
+    // 1. Mise à jour des gestionnaires d'événements pour le tooltip
     function handleMouseOver(event, d) {
       tooltip.style("display", "block")
         .html(`
           <strong>${d.title}</strong><br/>
           Authors: ${d.authors.join(", ")}<br/>
-          Subject: ${d.category}
+          Primary Category: ${d.primary_category}<br/>
+          All Categories: ${d.categories.join(", ")}
         `);
     }
 
@@ -798,15 +822,15 @@
       tooltip.style("display", "none");
     }
 
+    // 2. Mise à jour du gestionnaire de clic sur les nœuds
     function handleNodeClick(event, d) {
       document.getElementById("paper-title").textContent = d.title;
       document.getElementById("paper-authors").textContent = d.authors.join(", ");
-      document.getElementById("paper-category").textContent = d.category;
-      document.getElementById("paper-date").textContent = d.date;
+      document.getElementById("paper-category").textContent = d.primary_category;
+      document.getElementById("paper-date").textContent = d.published;
       document.getElementById("paper-abstract").textContent = d.abstract;
-      document.getElementById("paper-arxiv-link").href = `https://arxiv.org/abs/${d.arxivId}`;
+      document.getElementById("paper-arxiv-link").href = d.url;
 
-      // Slide in details
       document.getElementById("details-panel").classList.remove("hidden");
     }
 
@@ -869,60 +893,24 @@
         const data = await response.json();
         
         createGraph([
-      {
-        id: 1,
-        title: "Detecting Harmful Speech on Social Media",
-        authors: ["Doe, J.", "Smith, A."],
-        date: "2022-01-15",
-        abstract: "This paper explores various machine learning approaches to detect harmful speech on social media. We evaluate multiple supervised and semi-supervised techniques and compare them on diverse datasets.",
-        category: "Harmful Speech",
-        arxivId: "2201.12345"
-      },
-      {
-        id: 2,
-        title: "Advanced NLP Techniques",
-        authors: ["Johnson, R.", "Lee, S."],
-        date: "2021-11-08",
-        abstract: "We introduce new transformer architectures that push the state-of-the-art in NLP tasks, covering language modeling, QA, and text generation.",
-        category: "NLP",
-        arxivId: "2111.67890"
-      },
-      {
-        id: 3,
-        title: "Graph Neural Networks for Text Classification",
-        authors: ["Williams, T.", "Zhang, M."],
-        date: "2020-06-25",
-        abstract: "This paper proposes a novel graph neural network model for text classification tasks, leveraging document-word adjacency and advanced pooling strategies.",
-        category: "Graph Analysis",
-        arxivId: "2006.11111"
-      },
-      {
-        id: 4,
-        title: "Multimodal Hate Speech Detection",
-        authors: ["Kim, Y.", "Singh, P."],
-        date: "2023-03-01",
-        abstract: "Leveraging text and images, our system identifies hateful content more accurately by combining convolutional and transformer-based features.",
-        category: "Harmful Speech",
-        arxivId: "2303.99999"
-      },
-      {
-        id: 5,
-        title: "Ethical Implications of Large Language Models",
-        authors: ["Anderson, K.", "Morales, E."],
-        date: "2022-09-10",
-        abstract: "We discuss the ethical considerations arising from the widespread use of large language models, focusing on bias, misinformation, and accountability.",
-        category: "Ethics",
-        arxivId: "2209.55555"
-      },
-      {
-        id: 6,
-        title: "Semi-Supervised Learning for Hate Speech Detection",
-        authors: ["Taylor, B.", "Chen, D."],
-        date: "2022-12-05",
-        abstract: "This study highlights the benefits of semi-supervised approaches for detecting hate speech with limited labeled data and abundant unlabeled content.",
-        category: "Harmful Speech",
-        arxivId: "2212.44444"
-      }
+                {
+                'title': 'Fairness in Multi-Agent AI: A Unified Framework for Ethical and Equitable Autonomous Systems', 
+                'authors': ['Rajesh Ranjan', 'Shailja Gupta', 'Surya Narayan Singh'], 
+                'abstract': 'Ensuring fairness in decentralized multi-agent systems presents significant\nchallenges due to emergent biases, systemic inefficiencies, and conflicting\nagent incentives. This paper provides a comprehensive survey of fairness in\nmulti-agent AI, introducing a novel framework where fairness is treated as a\ndynamic, emergent property of agent interactions. The framework integrates\nfairness constraints, bias mitigation strategies, and incentive mechanisms to\nalign autonomous agent behaviors with societal values while balancing\nefficiency and robustness. Through empirical validation, we demonstrate that\nincorporating fairness constraints results in more equitable decision-making.\nThis work bridges the gap between AI ethics and system design, offering a\nfoundation for accountable, transparent, and socially responsible multi-agent\nAI systems.', 
+                'published': '2025-02-11', 
+                'url': 'http://arxiv.org/abs/2502.07254v1', 
+                'primary_category': 'Multiagent Systems', 
+                'categories': ['Multiagent Systems', 'Artificial Intelligence', 'Computers and Society']
+              },
+              {
+                'title': 'Learning to Learn by Gradient Descent by Gradient Descent',
+                'authors': ['Alex Nichol', 'Greg Sotiropoulos', 'Pushmeet Kohli'],
+                'abstract': 'The move from hand-designed features to learned features in machine learning has been wildly successful. In spite of this, optimization algorithms',
+                'published': '2016-10-10',
+                'url': 'http://arxiv.org/abs/1611.03824v1',
+                'primary_category': 'Machine Learning',
+                'categories': ['Machine Learning', 'Optimization']
+              }
     ]);
         return data.response;
     } catch (error) {
@@ -1022,55 +1010,70 @@
       e.stopPropagation();
     });
 
-    // Mock AI summary function - replace with actual API call
-    async function generateAISummary(paper) {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(`This paper by ${paper.authors.join(', ')} presents an innovative approach 
-          to ${paper.category.toLowerCase()}. The research contributes significantly to the field 
-          by addressing key challenges in ${paper.category.toLowerCase()} and proposing novel solutions. 
-          The methodology is well-structured and the results show promising improvements over existing approaches.`);
-        }, 1500);
-      });
-    }
+    async function getSummary(paper) {
+    try {
 
-    // Update the existing summaryBtn click handler
-    const summary = document.getElementById("paper-summary-btn");
-    summaryBtn.addEventListener("click", async () => {
-      // Get current paper data from the details panel
-      const currentPaper = {
-        title: document.getElementById("paper-title").textContent,
-        authors: document.getElementById("paper-authors").textContent.split(", "),
-        category: document.getElementById("paper-category").textContent,
-        date: document.getElementById("paper-date").textContent,
-        abstract: document.getElementById("paper-abstract").textContent,
-        arxivId: document.getElementById("paper-arxiv-link").href.split("/").pop()
-      };
-
-      // Update modal content
-      document.getElementById("modal-title").textContent = currentPaper.title;
-      document.getElementById("modal-authors").textContent = currentPaper.authors.join(", ");
-      document.getElementById("modal-category").textContent = currentPaper.category;
-      document.getElementById("modal-date").textContent = currentPaper.date;
-      document.getElementById("modal-abstract").textContent = currentPaper.abstract;
-      document.getElementById("modal-arxiv").textContent = currentPaper.arxivId;
-      document.getElementById("modal-arxiv-link").href = `https://arxiv.org/abs/${currentPaper.arxivId}`;
-      
-      // Show modal
-      modal.classList.add('show');
-      
-      // Add loading state for AI summary
-      const aiSummaryEl = document.getElementById("modal-ai-summary");
-      aiSummaryEl.innerHTML = '<div class="modal-loader"><div class="loader-spinner"></div></div>';
-      
-      // Generate and display AI summary
-      try {
-        const summary = await generateAISummary(currentPaper);
-        aiSummaryEl.textContent = summary;
-      } catch (error) {
-        aiSummaryEl.textContent = "Sorry, failed to generate AI summary. Please try again later.";
-      }
+    const response = await fetch('http://localhost:8000/extract-and-summarize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        title: paper.title,
+        authors: paper.authors,
+        date: paper.published,
+        abstract: paper.abstract,
+        category: paper.primary_category,
+        arxivId: "1706.03762",
+        url: paper.url,
+        summary: "", // Sera rempli par le serveur
+        pdf_url: "https://arxiv.org/pdf/1706.03762"
+      })
     });
+    
+    const data = await response.json();
+    console.log(data);
+    return data;
+
+  } catch (error) {
+    console.error('Summary generation error:', error);
+    return "Sorry, I'm having trouble generating the summary. Please try again later.";
+  }
+}
+
+// Mise à jour du gestionnaire du bouton de résumé
+summaryBtn.addEventListener("click", async () => {
+  const currentPaper = {
+    title: document.getElementById("paper-title").textContent,
+    authors: document.getElementById("paper-authors").textContent.split(", "),
+    category: document.getElementById("paper-category").textContent,
+    date: document.getElementById("paper-date").textContent,
+    abstract: document.getElementById("paper-abstract").textContent,
+    arxivId: document.getElementById("paper-arxiv-link").href.split("/").pop()
+  };
+
+  // Mise à jour du contenu modal
+  document.getElementById("modal-title").textContent = currentPaper.title;
+  document.getElementById("modal-authors").textContent = currentPaper.authors.join(", ");
+  document.getElementById("modal-category").textContent = currentPaper.category;
+  document.getElementById("modal-date").textContent = currentPaper.date;
+  document.getElementById("modal-abstract").textContent = currentPaper.abstract;
+  document.getElementById("modal-arxiv").textContent = currentPaper.arxivId;
+  document.getElementById("modal-arxiv-link").href = `https://arxiv.org/abs/${currentPaper.arxivId}`;
+  
+  modal.classList.add('show');
+  
+  const aiSummaryEl = document.getElementById("modal-ai-summary");
+  aiSummaryEl.innerHTML = '<div class="modal-loader"><div class="loader-spinner"></div></div>';
+  
+  try {
+    const summary = await getSummary(currentPaper);
+    aiSummaryEl.textContent = summary;
+  } catch (error) {
+    aiSummaryEl.textContent = "Sorry, failed to generate AI summary. Please try again later.";
+  }
+  });
+
   </script>
 </body>
 </html>

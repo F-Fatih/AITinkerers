@@ -14,7 +14,7 @@ def init_database(conn):
     cursor = conn.cursor()
 
     cursor.execute('''CREATE TABLE articles(
-                        id INTEGER NOT NULL, 
+                        id SERIAL, 
                         id_arxiv TEXT NOT NULL,
                         title TEXT,
                         publication_date TEXT,
@@ -33,15 +33,22 @@ def init_database(conn):
                     """)
 
     conn.commit()
-    close_db(conn) 
-
 
 def close_db(conn):
     conn.close()
 
 
-def get_data(conn):
+def select_summary(conn, id_arxiv):
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM articles")
+    cursor.execute("SELECT * FROM articles WHERE id_arxiv = ?", (id_arxiv,))
     data = cursor.fetchall()
     return data
+
+
+def insert_article(conn, article):
+    print(article)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO articles (id_arxiv, title, publication_date, author, abstract, summary, link) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                    (article['arxivId'], article['title'], article['date'], article['authors'], article['abstract'], article['summary'], article['link']))
+    conn.commit()
+    return cursor.lastrowid

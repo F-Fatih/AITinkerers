@@ -1,3 +1,7 @@
 fastapi
 uvicorn
 anthropic
+transformers
+torch
+requests
+arxiv
